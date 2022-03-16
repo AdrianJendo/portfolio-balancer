@@ -8,6 +8,7 @@ ib-insync = "*"
 black = "*"
 pandas = "*"
 openpyxl = "*"
+yfinance = "*"
 
 [dev-packages]
 

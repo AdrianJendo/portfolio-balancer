@@ -2,6 +2,7 @@ import math
 from ib_insync import *
 import pandas as pd
 import yfinance as yf
+from optparse import OptionParser
 
 # Use yfinance API to get price data
 def get_price_data(row, shares_to_buy={}, positions={}, portfolio_value=0):
@@ -26,7 +27,7 @@ def main():
     ib = IB()
     try:
         # Get new portfolio & weights
-        weights_df = pd.read_excel("./portfolio.xlsx")
+        weights_df = pd.read_excel("./portfolio/portfolio.xlsx")
 
         if weights_df["Weight"].sum() > 1:
             return False
@@ -91,13 +92,40 @@ def main():
     return
 
     # use matplotlib with --options TO COMPARE PORtFOLIO PERFORMANCE against S&P AND SHOW HISTORY (MONGDB)
-    # User mongo db to store portfolio value over time (take a snapshot every week or so)
-    # Display portfolio performance against SPY or something on simple frontend
+    # Display portfolio performance against SPY & QQQ
 
 
 if __name__ == "__main__":
-    # Use options parser to see if user wants to upload portfolio, rebalance, or view on chart
-    main()
+    # Use options parser to see if user wants to upload portfolio / rebalance, or view on chart
+    # -u / -r / -v just needs to be present in command (NO ARGUMENTS AFTER)
+    parser = OptionParser()
+    parser.add_option(
+        "-u",
+        "--upload",
+        action="store_true",
+        default=False,
+        dest="upload",
+    )
+    parser.add_option(
+        "-r",
+        "--rebalance",
+        action="store_true",
+        default=False,
+        dest="rebalance",
+    )
+    parser.add_option(
+        "-v",
+        "--view_chart",
+        action="store_true",
+        default=False,
+        dest="view_chart",
+    )
+
+    (options, args) = parser.parse_args()
+
+    print(options)
+
+    # main()
 
 
 # print(weights_df.iloc[0]["Rebalance"])

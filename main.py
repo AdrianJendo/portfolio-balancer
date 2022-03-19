@@ -111,11 +111,10 @@ def rebalance(options, weights_df):
         print("ERROR CONNECTING TO IB OR SUBMITTING TRADES")
 
 
-def get_prices_df(start_date, all_tickers):
+def get_prices_df(tickers):
     end_date = datetime.now().strftime("%Y-%m-%d")
     prices_df = pd.DataFrame(columns=[])
-    first_ticker = True
-    for ticker in all_tickers:
+    for ticker in tickers:
         # Get price data
         price_data = requests.get(
             "{}/{}".format(API_URL, ticker),
@@ -150,13 +149,9 @@ def get_prices_df(start_date, all_tickers):
         dividend_df = dividend_df.rename(columns={"dividend": "{}_DIV".format(ticker)})
 
         # Update main df
-        if first_ticker:
-            prices_df = pd.concat([prices_df, price_data_df, dividend_df], axis=1)
-            first_ticker = False
-        else:
-            prices_df = prices_df.join([price_data_df, dividend_df], how="left")
+        prices_df = prices_df.join([price_data_df, dividend_df], how="outer")
 
-    return prices_df.loc[start_date:end_date]
+    return prices_df
 
 
 def get_portfolio_value():
@@ -179,61 +174,62 @@ def graph_return(options, weights_df):
         float(weights_df.loc[weights_df["Ticker"] == "AAPL"]["Weight"]),
     )
     portfolio_tickers = list(weights_df["Ticker"])
-    all_tickers = [
-        "SPY",
-        "QQQ",
-        "DIA",
-    ] + portfolio_tickers  # compare against major indices
-    prices_df = get_prices_df(start_date, all_tickers)
-    return_df = pd.DataFrame(columns=["date"] + all_tickers)
+    index_tickers = ["SPY", "QQQ", "DIA"]
 
-    print(prices_df, return_df)
+    # port_prices_df = get_prices_df(portfolio_tickers)
+    index_prices_df = get_prices_df(index_tickers)
+    return_df = pd.DataFrame(columns=["date", "portfolio"] + index_tickers)
 
-    # 1. CHANGE TO YFINANCE API AND GET RID OF REQUESTS
-    # 2. GRAPH TIME
+    print(index_prices_df, return_df)
+
     return
 
     while end_datetime > cur_datetime:
         cur_date = cur_datetime.strftime("%Y-%m-%d")
-        last_date = last_contribution.strftime("%Y-%m-%d")
+        last_date = last_rebalance.strftime("%Y-%m-%d")
+        cur_prices = prices_df[:cur_date].iloc[-1]
         portfolio_value = 100  # Calculate current market value BEFORE rebalance
+        # spy_value =
+        # qqq_value =
 
+        print(cur_prices)
         # Rebalance portfolio
-        if next_rebalance <= cur_datetime:
-            next_rebalance += get_time_delta(frequency)
-            dividend = price_df.loc[last_date:cur_date]["dividend"].sum()
-            investible_dollars = contribution + remainder + dividend * num_shares
-            num_shares += investible_dollars // stock_price
-            total_investment += investible_dollars // stock_price * stock_price
-            remainder = investible_dollars % stock_price
-            last_contribution = cur_datetime
+        # if next_rebalance <= cur_datetime:
+        #     next_rebalance += get_time_delta(frequency)
+        #     dividend = price_df.loc[last_date:cur_date]["dividend"].sum()
+        #     investible_dollars = contribution + remainder + dividend * num_shares
+        #     num_shares += investible_dollars // stock_price
+        #     total_investment += investible_dollars // stock_price * stock_price
+        #     remainder = investible_dollars % stock_price
+        #     last_contribution = cur_datetime
 
-        # Update graph every 7 days
-        return_summary_df = pd.concat(
-            [
-                return_summary_df,
-                pd.DataFrame(
-                    [
-                        [
-                            cur_date,
-                            round(total_investment, 2),
-                            round(num_shares * stock_price, 2),
-                        ]
-                    ],
-                    columns=["date", "total_investment", "portfolio_value"],
-                ),
-            ]
-        )
+        # # Update graph every 7 days
+        # return_summary_df = pd.concat(
+        #     [
+        #         return_summary_df,
+        #         pd.DataFrame(
+        #             [
+        #                 [
+        #                     cur_date,
+        #                     round(total_investment, 2),
+        #                     round(num_shares * stock_price, 2),
+        #                 ]
+        #             ],
+        #             columns=["date", "total_investment", "portfolio_value"],
+        #         ),
+        #     ]
+        # )
 
         cur_datetime += relativedelta(days=7)  # Update graph every 7 days
 
-    return_summary_df = return_summary_df.set_index("date").sort_index()
-    print("Start of df: ")
-    print(return_summary_df.head(5))
-    print("End of df: ")
-    print(return_summary_df.tail(5))
+    # return_df = return_df.set_index("date").sort_index()
+    # print("Start of df: ")
+    # print(return_df.head(5))
+    # print("End of df: ")
+    # print(return_df.tail(5))
 
-    plot_df(return_summary_df, ticker)
+    # plot_df(return_summary_df, ticker)
+    return return_df
 
 
 # Currently only works in USD

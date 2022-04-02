@@ -8,9 +8,6 @@ from dateutil.relativedelta import relativedelta
 import requests
 import os
 
-API_URL = os.environ.get("API_URL")
-API_KEY = os.environ.get("API_KEY")
-
 # Use yfinance API to get price data
 def get_price_data(row, shares_needed={}, positions={}, portfolio_value=0):
     ticker = row["Ticker"]
@@ -112,51 +109,27 @@ def ib_rebalance(options, weights_df):
 
 
 def get_prices_df(start_date, tickers):
-    end_date = datetime.now().strftime("%Y-%m-%d")
     prices_df = pd.DataFrame(columns=[])
     for ticker in tickers:
         # Get price data
-        price_data = requests.get(
-            "{}/{}".format(API_URL, ticker),
-            params={"serietype": "line", "apikey": API_KEY},
-        )
-
-        # Get dividend data
-        dividend_data = requests.get(
-            "{}/stock_dividend/{}".format(API_URL, ticker), params={"apikey": API_KEY}
-        )
+        stock = yf.Ticker(ticker)
+        price_data_df = stock.history(period="max")
 
         # Parse price data
-        price_data = price_data.json().get("historical", None)
-        if price_data == None:
-            print("ERR", price_data)
+        if price_data_df.empty:
+            print("ERR", price_data_df)
             return pd.DataFrame()
-        price_data_df = pd.DataFrame(price_data)
-        price_data_df["date"] = pd.to_datetime(price_data_df["date"])
-        price_data_df = price_data_df.set_index("date").sort_index()
-        price_data_df = price_data_df.rename(columns={"close": ticker})
-
-        # Parse dividend data
-        dividend_data = dividend_data.json().get(
-            "historical",
-            [
-                {
-                    "date": end_date,
-                    "adjDividend": 0,
-                }  # Dummy data to avoid errors if company never paid a dividend
-            ],
+        price_data_df = price_data_df.rename(
+            columns={"Close": ticker, "Dividends": "{}_DIV".format(ticker)}
         )
-        dividend_df = pd.DataFrame(
-            [{"date": x["date"], "dividend": x["adjDividend"]} for x in dividend_data]
-        )
-        dividend_df = dividend_df.set_index("date").sort_index()
-        dividend_df = dividend_df.rename(columns={"dividend": "{}_DIV".format(ticker)})
 
         # Update main df
-        prices_df = prices_df.join([price_data_df, dividend_df], how="outer")
+        print(price_data_df[[ticker, "{}_DIV".format(ticker)]], prices_df)
+        prices_df = prices_df.join(
+            [price_data_df[[ticker, "{}_DIV".format(ticker)]]], how="outer"
+        )
 
-    print(prices_df.tail(70))
-    return prices_df.loc[datetime.strptime(start_date, "%Y-%m-%d") :]
+    return prices_df.loc[start_date:]
 
 
 def plot_df(df):

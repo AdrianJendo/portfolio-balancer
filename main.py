@@ -12,7 +12,7 @@ API_URL = os.environ.get("API_URL")
 API_KEY = os.environ.get("API_KEY")
 
 # Use yfinance API to get price data
-def get_price_data(row, shares_to_buy={}, positions={}, portfolio_value=0):
+def get_price_data(row, shares_needed={}, positions={}, portfolio_value=0):
     ticker = row["Ticker"]
     weight = row["Weight"]
     stock = yf.Ticker(ticker)
@@ -23,7 +23,7 @@ def get_price_data(row, shares_to_buy={}, positions={}, portfolio_value=0):
     if ticker in positions:
         shares -= positions[ticker]["shares"]
 
-    shares_to_buy[ticker] = {
+    shares_needed[ticker] = {
         "shares": math.floor(shares),  # Fractional shares can't be placed via API
         "last_price": last_price,
     }
@@ -48,7 +48,7 @@ def get_time_delta(frequency):
         return relativedelta(months=1)
 
 
-def rebalance(options, weights_df):
+def ib_rebalance(options, weights_df):
     ib = IB()
     try:
         # Connect to broker
@@ -111,7 +111,7 @@ def rebalance(options, weights_df):
         print("ERROR CONNECTING TO IB OR SUBMITTING TRADES")
 
 
-def get_prices_df(tickers):
+def get_prices_df(start_date, tickers):
     end_date = datetime.now().strftime("%Y-%m-%d")
     prices_df = pd.DataFrame(columns=[])
     for ticker in tickers:
@@ -127,8 +127,12 @@ def get_prices_df(tickers):
         )
 
         # Parse price data
-        price_data = price_data.json()["historical"]
+        price_data = price_data.json().get("historical", None)
+        if price_data == None:
+            print("ERR", price_data)
+            return pd.DataFrame()
         price_data_df = pd.DataFrame(price_data)
+        price_data_df["date"] = pd.to_datetime(price_data_df["date"])
         price_data_df = price_data_df.set_index("date").sort_index()
         price_data_df = price_data_df.rename(columns={"close": ticker})
 
@@ -151,91 +155,109 @@ def get_prices_df(tickers):
         # Update main df
         prices_df = prices_df.join([price_data_df, dividend_df], how="outer")
 
-    return prices_df
+    print(prices_df.tail(70))
+    return prices_df.loc[datetime.strptime(start_date, "%Y-%m-%d") :]
 
 
-def get_portfolio_value():
-    pass
+def plot_df(df):
+    plot = df.plot(figsize=(20, 10))
+    plot.set_ylabel("% Return")
+    plot.set_title("Investment Return Summary")
+    plot.legend(loc="upper left")
+    date_today = datetime.today().strftime("%Y-%m-%d")
+    plot.figure.savefig("graphs/{}-{}.jpg".format("portfolio_return_graph", date_today))
 
 
 def graph_return(options, weights_df):
     # Compare return of rebalanced portfolio to SPY, QQQ, DIA
     start_date = options.start_date  # day to start comparison
     frequency = options.frequency  # frequency of rebalance
-    cur_datetime = datetime.strptime(start_date, "%Y-%m-%d")
+
+    # print(
+    #     list(weights_df["Ticker"]),
+    #     float(weights_df.loc[weights_df["Ticker"] == "AAPL"]["Weight"]),
+    # )
+    portfolio_tickers = list(weights_df["Ticker"])
+    index_tickers = ["SPY", "QQQ", "DIA"]
+
+    print(portfolio_tickers)
+
+    port_prices_df = get_prices_df(start_date, portfolio_tickers)
+    print(port_prices_df)
+    return
+    index_prices_df = get_prices_df(start_date, index_tickers)
+    if index_prices_df.empty:
+        return
+    return_df_columns = ["date", "portfolio"] + index_tickers
+    return_df = pd.DataFrame(columns=return_df_columns)
+
+    print(index_prices_df, return_df)
+    print(
+        "------------------------------------------------------------------------------------------------------------------------"
+    )
+
+    cur_datetime = datetime.strptime(index_prices_df.first_valid_index(), "%Y-%m-%d")
     next_rebalance = cur_datetime  # Next date to rebalance portfolio
     last_rebalance = cur_datetime - relativedelta(
         days=5  # 5 days to avoid weekends & program errors when last_date and start_date are same day
     )
     end_datetime = datetime.now()  # show return until today
-
-    print(
-        list(weights_df["Ticker"]),
-        float(weights_df.loc[weights_df["Ticker"] == "AAPL"]["Weight"]),
-    )
-    portfolio_tickers = list(weights_df["Ticker"])
-    index_tickers = ["SPY", "QQQ", "DIA"]
-
-    # port_prices_df = get_prices_df(portfolio_tickers)
-    index_prices_df = get_prices_df(index_tickers)
-    return_df = pd.DataFrame(columns=["date", "portfolio"] + index_tickers)
-
-    print(index_prices_df, return_df)
-
-    return
-
     while end_datetime > cur_datetime:
         cur_date = cur_datetime.strftime("%Y-%m-%d")
         last_date = last_rebalance.strftime("%Y-%m-%d")
-        cur_prices = prices_df[:cur_date].iloc[-1]
-        portfolio_value = 100  # Calculate current market value BEFORE rebalance
-        # spy_value =
-        # qqq_value =
 
-        print(cur_prices)
         # Rebalance portfolio
-        # if next_rebalance <= cur_datetime:
-        #     next_rebalance += get_time_delta(frequency)
-        #     dividend = price_df.loc[last_date:cur_date]["dividend"].sum()
-        #     investible_dollars = contribution + remainder + dividend * num_shares
-        #     num_shares += investible_dollars // stock_price
-        #     total_investment += investible_dollars // stock_price * stock_price
-        #     remainder = investible_dollars % stock_price
-        #     last_contribution = cur_datetime
+        if next_rebalance <= cur_datetime:
+            dividend = index_prices_df.loc[
+                last_date:cur_date
+            ].sum()  # Assume fractional (so don't keep a remainder count)
+            for ticker in index_tickers:
+                if ticker in index_prices_df.columns:
+                    index_prices_df[ticker][cur_date:] += dividend[
+                        "{}_DIV".format(ticker)
+                    ]
+            last_rebalance = next_rebalance
+            next_rebalance += get_time_delta(frequency)
 
-        # # Update graph every 7 days
-        # return_summary_df = pd.concat(
-        #     [
-        #         return_summary_df,
-        #         pd.DataFrame(
-        #             [
-        #                 [
-        #                     cur_date,
-        #                     round(total_investment, 2),
-        #                     round(num_shares * stock_price, 2),
-        #                 ]
-        #             ],
-        #             columns=["date", "total_investment", "portfolio_value"],
-        #         ),
-        #     ]
-        # )
+        # Calculate returns
+        print(cur_date, last_date)
+        index_return = index_prices_df[:cur_date].iloc[-1] / index_prices_df.iloc[0]
+        print(index_return)
+        date_actual = index_prices_df[last_date:cur_date].index[-1]
 
-        cur_datetime += relativedelta(days=7)  # Update graph every 7 days
+        # Update graph every 5 days
+        return_df = pd.concat(
+            [
+                return_df,
+                pd.DataFrame(
+                    [
+                        [
+                            date_actual,
+                            0,
+                        ]
+                        + [round(index_return[index], 4) - 1 for index in index_tickers]
+                    ],
+                    columns=return_df_columns,
+                ),
+            ]
+        )
 
-    # return_df = return_df.set_index("date").sort_index()
-    # print("Start of df: ")
-    # print(return_df.head(5))
-    # print("End of df: ")
-    # print(return_df.tail(5))
+        cur_datetime += relativedelta(days=5)  # Update graph every 5 days
 
-    # plot_df(return_summary_df, ticker)
+    return_df = return_df.set_index("date").sort_index()
+    print("Start of df: ")
+    print(return_df.head(5))
+    print("End of df: ")
+    print(return_df.tail(5))
+
+    plot_df(return_df)
     return return_df
 
 
 # Currently only works in USD
 def main(options):
     # Get portfolio and check if weights sum to > 100%
-    weights_df = pd.read_excel("./portfolio/portfolio.xlsx")
+    weights_df = pd.read_excel("./portfolio/{}.xlsx".format(options.portfolio))
 
     if weights_df["Weight"].sum() > 1:
         print("Weights sum to > 1")
@@ -254,7 +276,7 @@ def main(options):
         print("Incorrect format for start_date. Valid format is YY-mm-dd")
 
     if options.rebalance:
-        rebalance(options, weights_df)
+        ib_rebalance(options, weights_df)
     if options.view_chart:
         graph_return(options, weights_df)
 
@@ -290,6 +312,13 @@ if __name__ == "__main__":
         default="monthly",
         dest="frequency",
         help="frequency of recurring contribution",
+    )
+    parser.add_option(
+        "-p",
+        "--portfolio",
+        default="portfolio",
+        dest="portfolio",
+        help="name of portfolio excel file",
     )
 
     (options, args) = parser.parse_args()

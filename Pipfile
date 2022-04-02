@@ -9,6 +9,7 @@ black = "*"
 pandas = "*"
 openpyxl = "*"
 yfinance = "*"
+matplotlib = "*"
 
 [dev-packages]
 

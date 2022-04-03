@@ -124,7 +124,6 @@ def get_prices_df(start_date, tickers):
         )
 
         # Update main df
-        print(price_data_df[[ticker, "{}_DIV".format(ticker)]], prices_df)
         prices_df = prices_df.join(
             [price_data_df[[ticker, "{}_DIV".format(ticker)]]], how="outer"
         )
@@ -146,57 +145,85 @@ def graph_return(options, weights_df):
     start_date = options.start_date  # day to start comparison
     frequency = options.frequency  # frequency of rebalance
 
-    # print(
-    #     list(weights_df["Ticker"]),
-    #     float(weights_df.loc[weights_df["Ticker"] == "AAPL"]["Weight"]),
-    # )
-    portfolio_tickers = list(weights_df["Ticker"])
+    port_tickers = list(weights_df["Ticker"])
     index_tickers = ["SPY", "QQQ", "DIA"]
 
-    print(portfolio_tickers)
-
-    port_prices_df = get_prices_df(start_date, portfolio_tickers)
-    print(port_prices_df)
-    return
+    port_prices_df = get_prices_df(start_date, port_tickers)
     index_prices_df = get_prices_df(start_date, index_tickers)
-    if index_prices_df.empty:
+
+    if index_prices_df.empty or port_prices_df.empty:
         return
+
     return_df_columns = ["date", "portfolio"] + index_tickers
     return_df = pd.DataFrame(columns=return_df_columns)
+    all_prices_df = port_prices_df.join([index_prices_df], how="outer")
 
-    print(index_prices_df, return_df)
-    print(
-        "------------------------------------------------------------------------------------------------------------------------"
-    )
+    init_port_value = 10000
+    port_value = init_port_value
 
-    cur_datetime = datetime.strptime(index_prices_df.first_valid_index(), "%Y-%m-%d")
+    shares = {}
+    for ticker in port_tickers:
+        shares[ticker] = (
+            port_value
+            * float(weights_df.loc[weights_df["Ticker"] == ticker]["Weight"])
+            / port_prices_df[ticker].iloc[0]
+        )
+
+    cur_datetime = all_prices_df.first_valid_index()
     next_rebalance = cur_datetime  # Next date to rebalance portfolio
     last_rebalance = cur_datetime - relativedelta(
         days=5  # 5 days to avoid weekends & program errors when last_date and start_date are same day
     )
     end_datetime = datetime.now()  # show return until today
-    while end_datetime > cur_datetime:
+    while cur_datetime < end_datetime:
         cur_date = cur_datetime.strftime("%Y-%m-%d")
         last_date = last_rebalance.strftime("%Y-%m-%d")
 
         # Rebalance portfolio
         if next_rebalance <= cur_datetime:
-            dividend = index_prices_df.loc[
+            # Handle dividends
+            dividend = all_prices_df.loc[
                 last_date:cur_date
-            ].sum()  # Assume fractional (so don't keep a remainder count)
+            ].sum()  # Assume fractional shares are okay (so don't keep a remainder count)
             for ticker in index_tickers:
                 if ticker in index_prices_df.columns:
                     index_prices_df[ticker][cur_date:] += dividend[
                         "{}_DIV".format(ticker)
                     ]
+
+            # Recalculate portfolio value
+            port_value = 0
+            for ticker in port_tickers:
+                port_value += dividend["{}_DIV".format(ticker)]
+                port_value += (
+                    port_prices_df[ticker][:cur_date].iloc[-1] * shares[ticker]
+                )
+
+            # Redistribute portfolio value
+            for ticker in port_tickers:
+                shares[ticker] = (
+                    port_value
+                    * float(weights_df.loc[weights_df["Ticker"] == ticker]["Weight"])
+                    / port_prices_df[ticker][:cur_date].iloc[-1]
+                )
+
+            # Increment rebalance time
             last_rebalance = next_rebalance
             next_rebalance += get_time_delta(frequency)
 
         # Calculate returns
-        print(cur_date, last_date)
         index_return = index_prices_df[:cur_date].iloc[-1] / index_prices_df.iloc[0]
-        print(index_return)
-        date_actual = index_prices_df[last_date:cur_date].index[-1]
+        port_return = (
+            sum(
+                [
+                    port_prices_df[ticker][:cur_date].iloc[-1] * shares[ticker]
+                    for ticker in port_tickers
+                ]
+            )
+            / init_port_value
+            - 1
+        )
+        update_date = index_prices_df[last_date:cur_date].index[-1]
 
         # Update graph every 5 days
         return_df = pd.concat(
@@ -205,8 +232,8 @@ def graph_return(options, weights_df):
                 pd.DataFrame(
                     [
                         [
-                            date_actual,
-                            0,
+                            update_date,
+                            port_return,
                         ]
                         + [round(index_return[index], 4) - 1 for index in index_tickers]
                     ],
@@ -218,6 +245,7 @@ def graph_return(options, weights_df):
         cur_datetime += relativedelta(days=5)  # Update graph every 5 days
 
     return_df = return_df.set_index("date").sort_index()
+    return_df = return_df.apply(lambda x: x * 100)
     print("Start of df: ")
     print(return_df.head(5))
     print("End of df: ")

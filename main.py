@@ -110,9 +110,11 @@ def ib_rebalance(options, weights_df):
         cron = CronTab(user=USER)
         cron.remove_all(comment="rebalancer job")
 
+        # cba to make these named arguments
         job = cron.new(
-            command="pipenv run python {working_directory}/main.py -v -r -s {start_date} -f {frequency} -p {portfolio}".format(
+            command="{working_directory}/run.sh {working_directory} {pipenv_path} {start_date} {frequency} {portfolio}".format(
                 working_directory=working_directory,
+                pipenv_path=os.environ.get("PIPENV_PATH"),
                 start_date=options.start_date,
                 frequency=options.frequency,
                 portfolio=options.portfolio,
@@ -309,10 +311,10 @@ def main(options):
     elif options.start_date and not validate_date(options.start_date):
         print("Incorrect format for start_date. Valid format is YY-mm-dd")
 
-    if options.rebalance:
-        ib_rebalance(options, weights_df)
     if options.view_chart:
         graph_return(options, weights_df)
+    if options.rebalance:
+        ib_rebalance(options, weights_df)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,12 @@
-#!/bin/bash
-#or whatever shell you use
-cd /Users/adrian/Desktop/portfolio-rebalancer
-. /Users/adrian/.local/share/virtualenvs/portfolio-rebalancer-qy1tCX5O/bin/activate
-# you should specifiy the python version in the below command
-#python2.7 start.py >> /Users/X/Code/python/example/log.txt 2>&1
-python main.py -v -s $1 -f $2 -p $3
+#!/bin/sh
+
+# cba to make these named arguments
+# $1 = working directory
+# $2 = pipenv path
+# $3 = start date
+# $4 = rebalance frequency
+# $5 = portfolio xlsx file name (NOT path)
+
+cd $1 # working directory
+. $2 # pipenv path
+python main.py -r -v -s $3 -f $4 -p $5 # start_date, frequency, portfolio

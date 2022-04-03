@@ -10,6 +10,7 @@ pandas = "*"
 openpyxl = "*"
 yfinance = "*"
 matplotlib = "*"
+python-crontab = "*"
 
 [dev-packages]
 

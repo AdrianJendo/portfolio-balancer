@@ -5,8 +5,11 @@ import yfinance as yf
 from optparse import OptionParser
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-import requests
+from crontab import CronTab
+import numpy as np
 import os
+
+USER = os.environ.get("USER")
 
 # Use yfinance API to get price data
 def get_price_data(row, shares_needed={}, positions={}, portfolio_value=0):
@@ -72,37 +75,64 @@ def ib_rebalance(options, weights_df):
         ib.reqGlobalCancel()
 
         # Calculate number of shares to buy / sell
-        shares_to_buy = {}
+        shares_needed = {}
         weights_df.apply(
             get_price_data,
             axis=1,
-            shares_to_buy=shares_to_buy,
+            shares_needed=shares_needed,
             positions=positions,
             portfolio_value=portfolio_value,
         )
 
         for ticker in positions:
-            if ticker not in shares_to_buy:
-                shares_to_buy[ticker] = {
+            if ticker not in shares_needed:
+                shares_needed[ticker] = {
                     "shares": -positions[ticker]["shares"],
                     "last_price": round(
                         positions[ticker]["mkt_value"] / positions[ticker]["shares"], 2
                     ),
                 }
-
         # Fill buy/sell orders
         trades = []
-        for ticker in shares_to_buy:
+        for ticker in shares_needed:
             contract = Stock(ticker, "SMART", "USD")
             ib.qualifyContracts(contract)
-            shares = shares_to_buy[ticker]["shares"]
-            buy_or_sell = "BUY" if shares > 0 else "SELL"
-            order = MarketOrder(buy_or_sell, abs(shares))
-            trades.append(ib.placeOrder(contract, order))
+            shares = shares_needed[ticker]["shares"]
+            if shares != 0:
+                buy_or_sell = "BUY" if shares > 0 else "SELL"
+                order = MarketOrder(buy_or_sell, abs(shares))
+                trades.append(ib.placeOrder(contract, order))
 
         print(trades)
 
-        # Check if cron job exists and create one if it doesn't
+        # Write cron job
+        working_directory = os.getcwd()
+        cron = CronTab(user=USER)
+        cron.remove_all(comment="rebalancer job")
+
+        # cba to make these named arguments
+        job = cron.new(
+            command="{working_directory}/run.sh {working_directory} {pipenv_path} {start_date} {frequency} {portfolio}".format(
+                working_directory=working_directory,
+                pipenv_path=os.environ.get("PIPENV_PATH"),
+                start_date=options.start_date,
+                frequency=options.frequency,
+                portfolio=options.portfolio,
+            ),
+            comment="rebalancer job",
+        )
+
+        frequency = options.frequency
+        if frequency == "quarterly":
+            job.every(3).month()
+        elif frequency == "biannually":
+            job.every(6).month()
+        elif frequency == "annually":
+            job.every(12).month()
+        else:  # monthly
+            job.every(1).month()
+
+        cron.write()
 
     except:
         print("ERROR CONNECTING TO IB OR SUBMITTING TRADES")
@@ -163,6 +193,11 @@ def graph_return(options, weights_df):
 
     shares = {}
     for ticker in port_tickers:
+        if np.isnan(port_prices_df[ticker].iloc[0]):
+            print(
+                "One or more of the stocks in your Portfolio IPOd after your start date"
+            )
+            return
         shares[ticker] = (
             port_value
             * float(weights_df.loc[weights_df["Ticker"] == ticker]["Weight"])
@@ -276,10 +311,10 @@ def main(options):
     elif options.start_date and not validate_date(options.start_date):
         print("Incorrect format for start_date. Valid format is YY-mm-dd")
 
-    if options.rebalance:
-        ib_rebalance(options, weights_df)
     if options.view_chart:
         graph_return(options, weights_df)
+    if options.rebalance:
+        ib_rebalance(options, weights_df)
 
 
 if __name__ == "__main__":
